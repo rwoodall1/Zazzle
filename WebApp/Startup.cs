@@ -11,6 +11,9 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Utilities;
+using Hangfire;
+using Hangfire.SqlServer;
+using Services;
 namespace src
 {
     public class Startup
@@ -30,8 +33,7 @@ namespace src
            
             ApplicationConfig.Environment = configuration["Environment"];
             ApplicationConfig.IsDeveloperMachine = configuration["IsDeveloperMachine"];
-            ApplicationConfig.SQLPassphrase = configuration["SQLPassphrase"];
-            ApplicationConfig.APISecretKey = configuration["APISecretKey"];
+           
             ApplicationConfig.CurrentYear = configuration["CurrentYear"];
                  ApplicationConfig.SMTPConfig = new SMTPConfig
             {
@@ -48,10 +50,24 @@ namespace src
         public void ConfigureServices(IServiceCollection services)
         {
             services.AddControllers();
+            services.AddHangfireServer();
+            services.AddHangfire(configuration => configuration
+                .SetDataCompatibilityLevel(CompatibilityLevel.Version_170)
+                .UseSimpleAssemblyNameTypeSerializer()
+                .UseRecommendedSerializerSettings()
+                .UseSqlServerStorage(Configuration.GetConnectionString("Default"), new SqlServerStorageOptions
+                {
+                    CommandBatchMaxTimeout = TimeSpan.FromMinutes(5),
+                    SlidingInvisibilityTimeout = TimeSpan.FromMinutes(5),
+                    QueuePollInterval = TimeSpan.Zero,
+                    UseRecommendedIsolationLevel = true,
+                    DisableGlobalLocks = true
+                }));
+            
         }
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
-        public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
+        public void Configure(IApplicationBuilder app, IBackgroundJobClient backgroundJobs, IWebHostEnvironment env)
         {
             if (env.IsDevelopment())
             {
@@ -59,12 +75,19 @@ namespace src
             }
             app.UseDefaultFiles();
             app.UseStaticFiles();
+            app.UseHangfireDashboard();
+          backgroundJobs.Enqueue(() => Console.WriteLine("Hello world from Hangfire!"));
+          //  RecurringJob.AddOrUpdate(() => new ZazzleDataService().ListNewOrders(), Cron.MinuteInterval(10));
             app.UseHttpsRedirection();
 
             app.UseRouting();
 
             app.UseAuthorization();
-
+            app.UseEndpoints(endpoints =>
+            {
+                endpoints.MapControllers();
+                endpoints.MapHangfireDashboard();
+            });
             app.UseEndpoints(endpoints =>
             {
 
