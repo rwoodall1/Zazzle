@@ -206,6 +206,7 @@ namespace RESTModule {
         private bool LogData(LogMetadata logMetadata)
         {
             var sqlClient = new SQLCustomClient();
+
             sqlClient.CommandText(@"INSERT INTO [dbo].[ApiLog]
            ([RequestContentType]
            ,[RequestUri]
