@@ -100,11 +100,10 @@ namespace Services
                     new EmailHelper().SendEmail("Failed to Insert Order(" + order.OrderId.ToString() + ")", ApplicationConfig.ErrorEmailAddress, "", "Failed to Insert Order(" + order.OrderId.ToString() + "):" + insertResult.Errors[0].DeveloperMessage);
                     continue;
                 }
-                var vInvno = insertResult.Data;
+          
                 foreach (var item in order.LineItems.LineItem)
                 {
                     sqlClientDetail.ClearParameters();
-                    sqlClientDetail.AddParameter("@Invno", vInvno);
                     sqlClientDetail.AddParameter("@ItemId", item.LineItemId);
                     sqlClientDetail.AddParameter("@OrderId", order.OrderId);
                     sqlClientDetail.AddParameter("@ItemType", item.LineItemType);
@@ -124,9 +123,11 @@ namespace Services
                     }
                     sqlClientFile.CommandText(@"Insert INTO ZazzleItemFiles (ItemId,FileType,Type,Description,Url)                                  ,PreviewDescription,TextFileUrl,PackingSheet,PSPageNumber,PSType,PSUrl) 
                                         Values(@ItemId,@FileType,@Type,@Description,@Url) ");
+                    var vInvno = detailResult.Data;
                     foreach (var file in item.PrintFiles)
                     {
                         sqlClientFile.ClearParameters();
+                        sqlClientFile.AddParameter("@Invno", vInvno);
                         sqlClientFile.AddParameter("@ItemId", detailResult.Data);
                         sqlClientFile.AddParameter("@FileType", "PRINT");
                         sqlClientFile.AddParameter("@Type", file.Type);
@@ -144,6 +145,7 @@ namespace Services
                     foreach (var file in item.Previews)
                     {
                         sqlClientFile.ClearParameters();
+                        sqlClientFile.AddParameter("@Invno", vInvno);
                         sqlClientFile.AddParameter("@ItemId", detailResult.Data);
                         sqlClientFile.AddParameter("@FileType", "PREVIEW");
                         sqlClientFile.AddParameter("@Type", file.Type);
@@ -160,6 +162,7 @@ namespace Services
                     //packing list files
                    
                     sqlClientFile.ClearParameters();
+                    sqlClientFile.AddParameter("@Invno", vInvno);
                     sqlClientFile.AddParameter("@ItemId", order.OrderId);
                     sqlClientFile.AddParameter("@FileType", "PACKINGSHEET");
                     sqlClientFile.AddParameter("@Type", order.PackingSheet.Page.Front.Type);
@@ -171,12 +174,58 @@ namespace Services
                         this.log.Error("Error inserting PackingList Files Record:" + fileInsertResult2.Errors[0].DeveloperMessage + " || " + jsonstr);
                         new EmailHelper().SendEmail("Error inserting PackingList Files Record", ApplicationConfig.ErrorEmailAddress, "", "Error inserting PackingList Files Record:" + fileInsertResult2.Errors[0].DeveloperMessage + " || " + jsonstr);
                     }
+                    //Insert Production Rec
+                    var prodSqlClient = new SQLCustomClient();
+                    prodSqlClient.CommandText(@"INSERT INTO Produtn (Invno,Company,Schcode,Prodno,KitRecvd,NoCopies,Screcv,PrshpDte,ZazzleOrderId) Values(@Invno,@Company,@Schcode,@Prodno,GETDATE(),@NoCopies,GETDATE(),@PrshpDte,@ZazzleOrderId)");
+                    prodSqlClient.AddParameter("@Invno",vInvno);
+                    prodSqlClient.AddParameter("@Company","ZAZ");
+                    prodSqlClient.AddParameter("@Schcode","02");
+                    prodSqlClient.AddParameter("@Prodno",vInvno);
+                    prodSqlClient.AddParameter("@NoCopies", item.Quantity);
+                    prodSqlClient.AddParameter("@PrshpDte", order.ShipByDate);
+                    prodSqlClient.AddParameter("@PrshpDte", order.ShipByDate);
+                    prodSqlClient.AddParameter("@ZazzleOrderId",order.OrderId);
+                    var prodResult = prodSqlClient.Insert();
+                    if (prodResult.IsError)
+                    {
+                        log.Error("Failed to insert prod record(" + vInvno.ToString() + ":" + prodResult.Errors[0].DeveloperMessage);
+                        new EmailHelper().SendEmail("Failed to insert prod record(" + vInvno.ToString(),ApplicationConfig.ErrorEmailAddress,"", "Failed to insert prod record(" + vInvno.ToString() + ":" + prodResult.Errors[0].DeveloperMessage);
+                    }
+
+                    //Insert WIP Rec
+                    var wipSqlClient = new SQLCustomClient();
+                    wipSqlClient.CommandText(@" Insert Into Wip (Invno,Schcode)Values(@Invno,'01'))");
+                    wipSqlClient.AddParameter("@Invno", vInvno);
+                    wipSqlClient.AddParameter("@Schcode", "02");
+                    var wipResult = wipSqlClient.Insert();
+                    if (prodResult.IsError)
+                    {
+                        log.Error("Failed to insert wip record(" + vInvno.ToString() + ":" + prodResult.Errors[0].DeveloperMessage);
+                        new EmailHelper().SendEmail("Failed to insert wip record(" + vInvno.ToString(), ApplicationConfig.ErrorEmailAddress, "", "Failed to insert wip record(" + vInvno.ToString() + ":" + prodResult.Errors[0].DeveloperMessage);
+                    }
+
                 }//end orderdetail     
             }//order foreach
             //BackgroundJob.Enqueue(() => FinalizeOrderReceived(InvnoJobs, false));//download files
             return processingResult;
         }
+        private async Task<ApiProcessingResult<int>> GetInvno()
+        {
+            var processingResult = new ApiProcessingResult<int>() { Data = 0 };
+            var result = new SQLCustomClient().CommandText("Select MAX(Invno) as Invno from ZazzleOrderDetail").SelectSingleColumn();
+            if (result.IsError)
+            {
+                this.log.Error("Failed to get Invno:" + result.Errors[0].DeveloperMessage);
+                processingResult.IsError = true;
+                return processingResult;
+            }
 
+            var strInvno = result.Data;
+            int iInvno = int.Parse(strInvno);
+            processingResult.Data = iInvno + 1;
+
+            return processingResult;
+        }
 
     }
 }
