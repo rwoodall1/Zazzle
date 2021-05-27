@@ -12,6 +12,7 @@ using Core;
 using System;
 using System.Collections.Generic;
 using SQLClient;
+using Hangfire;
 namespace Services
 {
     public class ZazzleDataService : BaseDataService
@@ -131,7 +132,13 @@ namespace Services
                         sqlClientFile.AddParameter("@Type", file.Type);
                         sqlClientFile.AddParameter("@PrintDescription", file.Description);
                         sqlClientFile.AddParameter("@PrintUrl", file.Url);
-                        sqlClientFile.Insert();
+                        var fileInsertResult=sqlClientFile.Insert();
+                        if (fileInsertResult.IsError)
+                        {
+                            string jsonstr = JsonSerializer.Serialize(file);
+                            this.log.Error("Error inserting Pint Files Record:" + fileInsertResult.Errors[0].DeveloperMessage + " || " + jsonstr);
+                            new EmailHelper().SendEmail("Error inserting Pint Files Record", ApplicationConfig.ErrorEmailAddress, "", "Error inserting Pint Files Record:" + fileInsertResult.Errors[0].DeveloperMessage + " || " + jsonstr);
+                        }
 
                     } //file foreach1
                     foreach (var file in item.Previews)
@@ -142,11 +149,31 @@ namespace Services
                         sqlClientFile.AddParameter("@Type", file.Type);
                         sqlClientFile.AddParameter("@PrintDescription", file.Description);
                         sqlClientFile.AddParameter("@PrintUrl", file.Url);
-                        sqlClientFile.Insert();
+                        var fileInsertResult1= sqlClientFile.Insert();
+                        if (fileInsertResult1.IsError) {
+                            string jsonstr = JsonSerializer.Serialize(file);
+                            this.log.Error("Error inserting Preview Files Record:" + fileInsertResult1.Errors[0].DeveloperMessage + " || " + jsonstr);
+                            new EmailHelper().SendEmail("Error inserting Preview Files Record", ApplicationConfig.ErrorEmailAddress, "", "Error inserting Pint Files Record:" + fileInsertResult1.Errors[0].DeveloperMessage + " || " + jsonstr);
+                        }
 
                     } //file foreach2
+                    //packing list files
+                   
+                    sqlClientFile.ClearParameters();
+                    sqlClientFile.AddParameter("@ItemId", order.OrderId);
+                    sqlClientFile.AddParameter("@FileType", "PACKINGSHEET");
+                    sqlClientFile.AddParameter("@Type", order.PackingSheet.Page.Front.Type);
+                    sqlClientFile.AddParameter("@PrintDescription", order.PackingSheet.Page.Front.Description);
+                    sqlClientFile.AddParameter("@PrintUrl", order.PackingSheet.Page.Front.Url);
+                    var fileInsertResult2  =sqlClientFile.Insert();
+                    if (fileInsertResult2.IsError) {
+                        string jsonstr = JsonSerializer.Serialize(order.PackingSheet);
+                        this.log.Error("Error inserting PackingList Files Record:" + fileInsertResult2.Errors[0].DeveloperMessage + " || " + jsonstr);
+                        new EmailHelper().SendEmail("Error inserting PackingList Files Record", ApplicationConfig.ErrorEmailAddress, "", "Error inserting PackingList Files Record:" + fileInsertResult2.Errors[0].DeveloperMessage + " || " + jsonstr);
+                    }
                 }//end orderdetail     
             }//order foreach
+            //BackgroundJob.Enqueue(() => FinalizeOrderReceived(InvnoJobs, false));//download files
             return processingResult;
         }
 
